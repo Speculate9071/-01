@@ -163,6 +163,37 @@ export class Envs {
   }
 
   /**
+   * 解析关键词绑定配置
+   * @returns {Array<{keyword: string, source: string, folderId: string, title: string}>}
+   */
+  static resolveKeywordBindings() {
+    const rawBindings = this.get('KEYWORD_BINDINGS', '', 'string');
+    const allowedBindingSources = ['tencent', 'youku', 'iqiyi', 'imgo', 'bilibili', 'renren', 'hanjutv', 'bahamut', 'dandan'];
+
+    if (!rawBindings || rawBindings.trim() === '') {
+      this.accessedEnvVars.set('KEYWORD_BINDINGS', '');
+      return [];
+    }
+
+    const bindings = rawBindings
+      .split(/\n|,/)
+      .map(item => item.trim())
+      .filter(item => item.length > 0)
+      .map(entry => entry.split('|').map(part => part.trim()))
+      .filter(parts => parts.length >= 3)
+      .map(parts => ({
+        keyword: parts[0],
+        source: parts[1].toLowerCase(),
+        folderId: parts[2],
+        title: parts[3] || parts[0]
+      }))
+      .filter(binding => allowedBindingSources.includes(binding.source));
+
+    this.accessedEnvVars.set('KEYWORD_BINDINGS', rawBindings);
+    return bindings;
+  }
+
+  /**
    * 获取记录的原始环境变量 JSON
    * @returns {Map<any, any>} JSON 字符串
    */
@@ -213,11 +244,12 @@ export class Envs {
       'YOUKU_CONCURRENCY': { category: 'source', type: 'number', description: '优酷并发配置，默认8', min: 1, max: 16 },
       
       // 匹配配置
-      'PLATFORM_ORDER': { category: 'match', type: 'multi-select', options: this.ALLOWED_PLATFORMS, description: '平台排序配置' },
-      'EPISODE_TITLE_FILTER': { category: 'match', type: 'text', description: '剧集标题过滤规则' },
-      'ENABLE_EPISODE_FILTER': { category: 'match', type: 'boolean', description: '集标题过滤开关' },
-      'STRICT_TITLE_MATCH': { category: 'match', type: 'boolean', description: '严格标题匹配模式' },
-      'TITLE_TO_CHINESE': { category: 'match', type: 'boolean', description: '外语标题转换中文开关' },
+        'PLATFORM_ORDER': { category: 'match', type: 'multi-select', options: this.ALLOWED_PLATFORMS, description: '平台排序配置' },
+        'EPISODE_TITLE_FILTER': { category: 'match', type: 'text', description: '剧集标题过滤规则' },
+        'ENABLE_EPISODE_FILTER': { category: 'match', type: 'boolean', description: '集标题过滤开关' },
+        'STRICT_TITLE_MATCH': { category: 'match', type: 'boolean', description: '严格标题匹配模式' },
+        'TITLE_TO_CHINESE': { category: 'match', type: 'boolean', description: '外语标题转换中文开关' },
+        'KEYWORD_BINDINGS': { category: 'match', type: 'text', description: '关键字直连指定站点文件夹，格式：关键词|源|文件夹ID|可选标题，多条用换行或逗号分隔' },
 
       // 弹幕配置
       'BLOCKED_WORDS': { category: 'danmu', type: 'text', description: '屏蔽词列表' },
@@ -278,6 +310,7 @@ export class Envs {
       danmuOutputFormat: this.get('DANMU_OUTPUT_FORMAT', 'json', 'string'), // 弹幕输出格式配置（默认 json，可选值：json, xml）
       strictTitleMatch: this.get('STRICT_TITLE_MATCH', false, 'boolean'), // 严格标题匹配模式配置（默认 false，宽松模糊匹配）
       titleToChinese: this.get('TITLE_TO_CHINESE', false, 'boolean'), // 外语标题转换中文开关
+      keywordBindings: this.resolveKeywordBindings(), // 关键字绑定
       rememberLastSelect: this.get('REMEMBER_LAST_SELECT', true, 'boolean'), // 是否记住手动选择结果，用于match自动匹配时优选上次的选择（默认 true，记住）
       MAX_LAST_SELECT_MAP: this.get('MAX_LAST_SELECT_MAP', 100, 'number'), // 记住上次选择映射缓存大小限制（默认 100）
       deployPlatformAccount: this.get('DEPLOY_PLATFROM_ACCOUNT', '', 'string', true), // 部署平台账号ID配置（默认空）
