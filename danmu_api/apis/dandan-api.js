@@ -45,6 +45,52 @@ const otherSource = new OtherSource();
 const doubanSource = new DoubanSource(tencentSource, iqiyiSource, youkuSource, bilibiliSource);
 const tmdbSource = new TmdbSource(doubanSource);
 
+// 用于关键字直连的站点处理映射
+const bindingSourceHandlers = {
+  tencent: tencentSource,
+  youku: youkuSource,
+  iqiyi: iqiyiSource,
+  imgo: mangoSource,
+  bilibili: bilibiliSource,
+  renren: renrenSource,
+  hanjutv: hanjutvSource,
+  bahamut: bahamutSource,
+  dandan: dandanSource,
+};
+
+function normalizeBindingKeyword(keyword) {
+  return (keyword || '').trim().toLowerCase();
+}
+
+function findKeywordBinding(queryTitle) {
+  if (!globals.keywordBindings || globals.keywordBindings.length === 0) return null;
+  const normalizedQuery = normalizeBindingKeyword(queryTitle);
+  return globals.keywordBindings.find(binding => normalizeBindingKeyword(binding.keyword) === normalizedQuery) || null;
+}
+
+async function buildAnimesFromBinding(binding, queryTitle) {
+  const handler = bindingSourceHandlers[binding.source];
+  if (!handler || typeof handler.handleAnimes !== 'function') {
+    log("warn", `[binding] Unsupported source '${binding.source}' for keyword '${binding.keyword}'`);
+    return [];
+  }
+
+  const manualAnimes = [];
+  const displayTitle = binding.title || queryTitle || binding.keyword;
+
+  const virtualEntry = {
+    title: displayTitle,
+    mediaId: binding.folderId,
+    year: new Date().getFullYear(),
+    type: `${binding.source}绑定`,
+    imageUrl: '',
+  };
+
+  await handler.handleAnimes([virtualEntry], displayTitle, manualAnimes);
+
+  return manualAnimes;
+}
+
 function matchSeason(anime, queryTitle, season) {
   const normalizedAnimeTitle = normalizeSpaces(anime.animeTitle);
   const normalizedQueryTitle = normalizeSpaces(queryTitle);
@@ -88,18 +134,49 @@ export async function searchAnime(url, preferAnimeId = null, preferSource = null
     });
   }
 
-  // 检查搜索缓存
-  const cachedResults = getSearchCache(queryTitle);
-  if (cachedResults !== null) {
-    return jsonResponse({
-      errorCode: 0,
-      success: true,
-      errorMessage: "",
-      animes: cachedResults,
-    });
+  const keywordBinding = findKeywordBinding(queryTitle);
+
+  // 检查搜索缓存（当不存在绑定配置时）
+  if (!keywordBinding) {
+    const cachedResults = getSearchCache(queryTitle);
+    if (cachedResults !== null) {
+      return jsonResponse({
+        errorCode: 0,
+        success: true,
+        errorMessage: "",
+        animes: cachedResults,
+      });
+    }
   }
 
   const curAnimes = [];
+
+  if (keywordBinding) {
+    log("info", `[binding] Hit keyword binding for ${queryTitle}, source: ${keywordBinding.source}`);
+    const boundAnimes = await buildAnimesFromBinding(keywordBinding, queryTitle);
+
+    if (boundAnimes.length > 0) {
+      storeAnimeIdsToMap(boundAnimes, queryTitle);
+      setSearchCache(queryTitle, boundAnimes);
+
+      if (globals.localCacheValid) {
+        await updateLocalCaches();
+      }
+
+      if (globals.redisValid) {
+        await updateRedisCaches();
+      }
+
+      return jsonResponse({
+        errorCode: 0,
+        success: true,
+        errorMessage: "",
+        animes: boundAnimes,
+      });
+    } else {
+      log("warn", `[binding] No data returned for keyword ${queryTitle}, falling back to normal search.`);
+    }
+  }
 
   // 链接弹幕解析
   const urlRegex = /^(https?:\/\/)?([a-zA-Z0-9-]+\.)+[a-zA-Z]{2,6}(:\d+)?(\/[^\s]*)?$/;
